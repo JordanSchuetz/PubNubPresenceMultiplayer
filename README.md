@@ -1,4 +1,4 @@
-# PubNubPresenceMultiplayer
+# PubNub Presence Multiplayer Player Movement Example
 
 Please use your own PubNub API keys before testing
 
