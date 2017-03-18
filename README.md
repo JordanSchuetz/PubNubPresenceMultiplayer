@@ -7,5 +7,4 @@ This is a example of a real time game using Phaser's API's and PubNub Presence. 
 Work in progress
 
 ![Screenshot of Players](http://i.imgur.com/inQNkx4.png)
-
 Open One Incognito Window & One Normal Window http://ninjapigstudios.com/PubNub/javascriptmulti.html
