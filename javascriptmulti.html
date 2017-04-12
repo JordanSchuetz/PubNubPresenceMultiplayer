@@ -11,29 +11,17 @@
 <body>
 <script type="text/javascript">
 (function(){
-	//Generate a Unique ID specific to your web browser instance
-	function generateUUID() {
-		var d = new Date().getTime();
-		if(window.performance && typeof window.performance.now === "function"){
-			d += performance.now();;
-		}
-		var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-			var r = (d + Math.random()*16)%16 | 0;
-			d = Math.floor(d/16);
-			return (c=='x' ? r : (r&0x3|0x8)).toString(16);
-		});
-		return uuid;
-	};
 
+	var nextMessage = 0;
 	//Save your generated UUID to local storage to prevent duplicates from PubNub Presence
 	var UniqueID = window.localStorage.getItem('uuid');
 	if (!UniqueID) {
-		UniqueID = generateUUID();
+		UniqueID = PubNub.generateUUID();
 		window.localStorage.setItem('uuid', UniqueID);
 	}
 
 	//Create Phaser Game Window and preload assets into memory
-	var game = new Phaser.Game(800, 600, Phaser.AUTO, '', { preload: preload, create: create, update: update });
+	var game = new Phaser.Game(800, 600, Phaser.AUTO, '', { preload: preload, create: create, update: update, render: render });
 	function preload() {
 		game.load.image('sky', 'assets/sky.png');
 		game.load.image('ground', 'assets/platform.png');
@@ -44,6 +32,8 @@
 	var player = [];
 	var cursors;
 	var text = [];
+	var frameCounter = 0;
+	var haveIMoved = 0;
 
 	//Create a player everytime someone joins the game.
 	var createPlayer = function(presenceEvent)
@@ -51,37 +41,58 @@
 		if (player[presenceEvent.uuid]) {
 			return;
 		}
-
+		console.log("Create Player Presence", presenceEvent)
 		//Create a player object, index in array player by UUID
-		player[presenceEvent.uuid] = game.add.sprite( 100, game.world.height - 125, 'dude');
-		game.physics.arcade.enable(player[presenceEvent.uuid]);
-		player[presenceEvent.uuid].body.bounce.y = 0.2;
-		player[presenceEvent.uuid].body.gravity.y = 300;
-		player[presenceEvent.uuid].body.collideWorldBounds = true;
-		player[presenceEvent.uuid].animations.add('left', [0, 1, 2, 3], 10, true);
-		player[presenceEvent.uuid].animations.add('right', [5, 6, 7, 8], 10, true);
+		var newPlayer = game.add.sprite( 100, 400, 'dude');
+		game.physics.startSystem(Phaser.Physics.ARCADE);
+		game.physics.arcade.enable(newPlayer, Phaser.Physics.ARCADE);
+		newPlayer.body.bounce.y = 0.2;
+
+		if (presenceEvent.uuid == UniqueID) {
+			newPlayer.body.gravity.y = 500;
+			game.camera.follow(newPlayer);
+		}
+
+		newPlayer.body.collideWorldBounds = true;
+		newPlayer.animations.add('left', [0, 1, 2, 3], 10, true);
+		newPlayer.animations.add('right', [5, 6, 7, 8], 10, true);
 
 		//Create a text object, index in array text by UUID
 		text[presenceEvent.uuid] = game.add.text(0, 0, presenceEvent.uuid, {font: "15px"});
 		text[presenceEvent.uuid].anchor.set(0.5);
-		text[presenceEvent.uuid].x = Math.floor(player[presenceEvent.uuid].x + player[presenceEvent.uuid].width / 2);
-		text[presenceEvent.uuid].y = Math.floor(player[presenceEvent.uuid].y + player[presenceEvent.uuid].height -50 );
-		player[presenceEvent.uuid].targetX = text[presenceEvent.uuid].x;
+		text[presenceEvent.uuid].x = Math.floor(newPlayer.x + newPlayer.width / 2);
+		text[presenceEvent.uuid].y = Math.floor(newPlayer.y + newPlayer.height -50 );
+		newPlayer.targetX = text[presenceEvent.uuid].x;
+		newPlayer.targetY = text[presenceEvent.uuid].y;
 
-		game.physics.startSystem(Phaser.Physics.ARCADE);
-		game.physics.arcade.enable(player[presenceEvent.uuid]);
-		console.log("Player", player[presenceEvent.uuid])
-		console.log(Object.keys(player)); 
+
+		newPlayer.lastTimeToken = "0";
+
+		player[presenceEvent.uuid] = newPlayer;
+		//console.log("Player", newPlayer)
+		//console.log(Object.keys(player)); 
 	}
 
+	function getPlayer() {
+		var currentPlayer = player[UniqueID];
+
+		if (currentPlayer && currentPlayer.body) {
+			return currentPlayer;
+		}
+
+		return false;
+	}
 
 	//The Create function is required by Phaser API. Runs on Launch
 	function create() {
+		game.time.advancedTiming = true;
 		//Create background objects
+		game.physics.startSystem(Phaser.Physics.ARCADE);
 		game.add.sprite(0, 0, 'sky');
 		platforms = game.add.group();
 		platforms.enableBody = true;
-		var ground = platforms.create(0, game.world.height - 64, 'ground');
+		
+		ground = platforms.create(0, game.world.height - 64, 'ground');
 		ground.scale.setTo(2, 2);
 		ground.body.immovable = true;
 		game.stage.disableVisibilityChange = true;
@@ -90,15 +101,15 @@
 
 		//Create PubNub Keys Unique to your application
 		pubnub = new PubNub({
-			publishKey : 'demo',
-			subscribeKey : 'demo',
+			publishKey : 'pub-c-87d8f395-60a7-4218-bc63-cb062cb42b70',
+			subscribeKey : 'sub-c-21b5caf4-1f16-11e7-a9ec-0619f8945a4f',
 			uuid: UniqueID,
 		});
 	       
 		//Send out a sample message upon connection to the PubNub network to see what UUID's are in the channel
 		function publishSampleMessage() {
 			var publishConfig = {
-			channel : "dankmemes",
+			channel : "dankmemes3",
 				message : {
 					UniqueID
 				}
@@ -107,7 +118,6 @@
 				console.log(status, response);
 			})
 		}
-
 		//Create a PubNub listener that checks from presence and message events
 		pubnub.addListener({
 			status: function(statusEvent) {
@@ -118,46 +128,71 @@
 			message: function(presenceEvent) {
 				console.log("New Message!!", presenceEvent);
 				var message = presenceEvent.message;
-
 				if (player[message.uuid]) {
 					if(message.uuid != UniqueID){
 						var playerInstance = player[presenceEvent.message.uuid];
-						playerInstance.targetX = message.x;
-						updateTextForPlayer(message.uuid);
+						//console.log("Checking time token");
+						//console.log(playerInstance.lastTimeToken, presenceEvent.timetoken);
+
+						if (playerInstance.lastTimeToken < message.id) {
+							playerInstance.targetX = message.x;
+							playerInstance.targetY = message.y;
+							updateTextForPlayer(message.uuid);
+							playerInstance.lastTimeToken = message.id;
+						}
 					}
 					} else {
-						// createPlayer(message);
+						//createPlayer(message);
 				}
 			},
 			presence: function(presenceEvent) {
 				if (presenceEvent.action === 'join'){
-				//Create a new player
-				createPlayer(presenceEvent);
-
+				//presenceEvent.state = currentPlayer.x
+				// pubnub.setState(
+				// 	{
+				// 	state:{
+				// 		x: currentPlayer.x,
+				// 		y: currentPlayer.y,
+				// 	},
+				// 	uuid: UniqueID,
+				// 	channel: ['dankmemes3']
+				// 	},
+				// 	function (status){
+				// 		console.log(status)
+				// });
 				console.log("PresenceEvent", presenceEvent)
-
+				createPlayer(presenceEvent);
+				// pubnub.publish({
+				// 	channel: 'dankmemes3',
+				// 	message: {
+				// 		uuid: UniqueID,
+				// 		x: currentPlayer.x,
+				// 		y: currentPlayer.y,
+				// 		id: nextMessage++
+				// 	}
+				// });
 				//Check who is in the scene, then create X amount players according to UUID's recieved
-				hereNow(presenceEvent)
-
+				// hereNow(presenceEvent)
 				//If a player joins, send out current position to other users so they know where you are located
-				if (player[UniqueID] != undefined){
-					var playerCurrentX =  player[UniqueID].body.x;
-					pubnub.publish({
-						channel: 'dankmemes',
-						message: {
-							uuid: UniqueID,
-							x: playerCurrentX,
-						//textx: textposition
-						}
-					})
-				}
+				// if (player[UniqueID] != undefined){
+				// 	var playerCurrentX =  player[UniqueID].body.x;
+				// 	var playerCurrentY =  player[UniqueID].body.y;
+				// 	pubnub.publish({
+				// 		channel: 'dankmemes3',
+				// 		message: {
+				// 			uuid: UniqueID,
+				// 			x: playerCurrentX,
+				// 			y: playerCurrentY,
+				// 		//textx: textposition
+				// 		}
+				// 	})
+				// }
 			}
 			else if(presenceEvent.action === 'leave' || presenceEvent.action === 'timeout') 
 			{
 					hereNow(presenceEvent)
 					console.log("Action Event Left")
 					console.log("Remove Player", presenceEvent.uuid)
-
 					//If a player leaves the game, remove the sprite object & text object from array & screen
 					if(player[presenceEvent.uuid]){
 						if(presenceEvent.uuid != UniqueID){
@@ -176,52 +211,49 @@
 			}
 		});
 		//PubNub API function that lets you know who is in the channel and how many occupants are present
-		function hereNow(presenceEvent)
-		{
-			console.log("State of User:", presenceEvent);
+		function hereNow(){
+			//console.log("State of User:", presenceEvent);
 			pubnub.hereNow(
 				{
-					channels: ["dankmemes"], 
+					channels: ["dankmemes3"], 
 					includeUUIDs: true,
 					includeState: true
 				},
 				function (status, response) {
 					console.log("TotalOccupancy: ", response.totalOccupancy)
 					console.log(response)
-
 					//Create number of players based off how many occupants are in the channel
-					var occupants = response.channels.dankmemes.occupants;
+					var occupants = response.channels.dankmemes3.occupants;
 					for (var i in occupants) {
 						createPlayer(occupants[i]);
 					}
+					if(occupants == 0){
+						//createPlayer(occupants[1]);
+					}
 				}
 			); 
+			return true;
 		};
-		hereNow();
-		console.log("Subscribing..");
-
 		pubnub.subscribe({
-			channels : ["dankmemes"],
+			channels : ["dankmemes3"],
 			withPresence: true
 		});
-
-		//If person leaves or refreshes the window, run the unscribe function
+		hereNow();
+		//If person leaves or refreshes the window, run the unsubscribe function
 		window.onbeforeunload = function(e) {
 			unsubscribe();
 		};
-
 		//Unscribe people from PubNub network
 		function unsubscribe(uuid) {
 			console.log('unsubscribing');
 			player[UniqueID].destroy();
 			pubnub.unsubscribe({
-			channels: ['dankmemes'],
+			channels: ['dankmemes3'],
 			withPresence: true
 		});
 		pubnub.removeListener(listener);
 		}
 	}
-
 	//Function to update the text for each player so you can tell players apart
 	function updateTextForPlayer(uuid) {
 		if(text[uuid] && player[uuid]) {
@@ -229,46 +261,58 @@
 			text[uuid].y = Math.floor(player[uuid].y + player[uuid].height -50 );
 		}
 	}
-
 	//The update function runs every frame and is required by Phaser API
 	function update()
 	{
 		cursors = game.input.keyboard.createCursorKeys();
-
+		var currentPlayer = getPlayer();
+		game.physics.arcade.collide(currentPlayer, ground);
 		//If your player is on the screen, allow the arrow keys to move him around
-		if(player[UniqueID] && player[UniqueID].body) {
+		if(currentPlayer) {
 			if (cursors.left.isDown)
 			{
 				//  Move to the left
-				player[UniqueID].body.velocity.x = -200;
+				currentPlayer.body.velocity.x = -200;
 				//player[j].addChild(text[0]);
-
-				player[UniqueID].animations.play('left');
+				currentPlayer.animations.play('left');
+				currentPlayer.dirty = true;
 			}
 			else if (cursors.right.isDown )
 			{
 				//  Move to the right
-				player[UniqueID].body.velocity.x = 200;
-
-				player[UniqueID].animations.play('right');
+				currentPlayer.body.velocity.x = 200;
+				currentPlayer.animations.play('right');
+				currentPlayer.dirty = true;
+			}
+			else if (cursors.up.isDown )
+			{
+				//  Move to the up
+				currentPlayer.body.velocity.y = -200;
+				currentPlayer.dirty = true;
 			}
 			else
 			{
 				//  Stand still
-				player[UniqueID].body.velocity.x = 0;
-				player[UniqueID].animations.stop();
+				currentPlayer.body.velocity.x = 0;
+				currentPlayer.animations.stop();
+				currentPlayer.frame = 4;
+				currentPlayer.dirty = false;
+			}
 
-				player[UniqueID].frame = 4;
+			if (Math.abs(currentPlayer.body.velocity.y) > 0.01) {
+				if (currentPlayer.body.y <=487){
+					currentPlayer.dirty = true;
+				}
 			}
 		}
-
 		//Smoothing to make player movements fluid to adjust for posible lost packets over PubNub network
 		for (var i in player) { 
 			if( i != UniqueID ) {
 				var p = player[i];
 				game.physics.arcade.enable(p);
-				if (p && p.targetX != p.x) {
+				if (p) {
 					p.x = (p.x * 4 + p.targetX) / 5;
+					p.y = (p.y * 4 + p.targetY) / 5;
 					var delta = p.x - p.targetX;
 					if (Math.abs(delta) < 1) {
 						p.x = p.targetX;
@@ -284,29 +328,54 @@
 			}
 		//Run update text function for each person on screen
 		updateTextForPlayer(i);
-		game.debug.body(player[i]);
+		//game.debug.body(player[i]);
+		}
+	}
+	var gameTime = 60
+	function render() {
+		game.debug.text(game.time.fps, 2, 14, "#00ff00");
+		gameTime = game.time.fps
+		//console.log(gameTime)
+	}
+	var lastX = 0;
+	//Run syncPlayerState in milliseconds to update all users in channel on your current position
+	//insert score into message 
+	function syncPlayerState() {
+		currentPlayer = getPlayer();
+		haveIMoved++
+		if (currentPlayer && currentPlayer.dirty) {
+			haveIMoved= 0;
+			pubnub.publish({
+				channel: 'dankmemes3',
+				message: {
+					uuid: UniqueID,
+					x: currentPlayer.x,
+					y: currentPlayer.y,
+					id: nextMessage++
+				}
+			});
+			//currentPlayer.dirty = false;
+		}
+		if(haveIMoved > 20){
+			haveIMoved= 0;
+			//console.log(haveIMoved)
+			//console.log("hi")
+			pubnub.publish({
+				channel: 'dankmemes3',
+				message: {
+					uuid: UniqueID,
+					x: currentPlayer.x,
+					y: currentPlayer.y,
+					id: nextMessage++
+				}
+			});
 		}
 	}
 
-	var lastX = 0;
-	//Run syncPlayerState in milliseconds to update all users in channel on your current position
-	function syncPlayerState() {
-		if(player[UniqueID] && player[UniqueID].body.x != undefined){
-			var x =  player[UniqueID].body.x;
-			var velocityOfPlayer =  player[UniqueID].body.velocity.x;
-			if (lastX != velocityOfPlayer) {
-				//Send your position out to all users in your channel
-				pubnub.publish({
-					channel: 'dankmemes',
-					message: {
-						uuid: UniqueID,
-						x: x,
-					}
-				})
-			}
-		}
-	}
-	window.setInterval(syncPlayerState, 66);
+	window.setInterval(function () {
+		syncPlayerState();
+	}, 200);
+	//window.requestAnimationFrame(onAnimationFrame);
 })();</script>
 </body>
 </html>
